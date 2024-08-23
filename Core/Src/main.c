@@ -53,9 +53,10 @@ TIM_HandleTypeDef htim1;
 
 uint32_t adc_data[NUM_OF_ADC_DATA];
 volatile float pressure = 0;
-volatile uint32_t adc_counter = 0;
+uint32_t adc_counter = 0;
 uint32_t timer_counter = 0;
-uint8_t adc_ready = False;
+volatile uint8_t adc_ready = False;
+
 
 /* USER CODE END PV */
 
@@ -66,7 +67,7 @@ static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
-//float measure_pressure(void);
+void measure_pressure(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -118,18 +119,10 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-		if(adc_ready==True)
+		if(adc_ready == True)
 		{
 			adc_ready=False;
-			float adc_temp_data = 0;
-			for(uint8_t i = 0;i < NUM_OF_ADC_DATA;i++)
-			{
-				adc_temp_data += (float) adc_data[i];
-			}
-			
-			adc_temp_data /= NUM_OF_ADC_DATA;
-			
-			pressure = ((adc_temp_data * 3.3 * 1.5 / 4095) - 2.5) / 100;
+			measure_pressure();
 		}
     /* USER CODE END WHILE */
 
@@ -341,19 +334,19 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	}
 }
 
-//float measure_pressure(void)
-//{
-//		float adc_temp_data = 0;
-//		for(uint8_t i = 0;i < NUM_OF_ADC_DATA;i++)
-//		{
-//			adc_temp_data += (float) adc_data[i];
-//		}
-//		
-//		adc_temp_data /= NUM_OF_ADC_DATA;
-//		
-//		adc_temp_data = ((adc_temp_data * 3.3 * 1.5 / 4095) - 2.5) / 100;
-//		return adc_temp_data;
-//}
+void measure_pressure(void)
+{
+		float adc_temp_data = 0;
+		for(uint8_t i = 0;i < NUM_OF_ADC_DATA;i++)
+		{
+			adc_temp_data += (float) adc_data[i];
+		}
+		
+		adc_temp_data /= NUM_OF_ADC_DATA;
+		
+		pressure = (adc_temp_data * 3.3 * 1.5 / 4095) - 2.5;
+		
+}
 
 /* USER CODE END 4 */
 
