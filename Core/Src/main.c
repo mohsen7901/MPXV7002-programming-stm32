@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-//#include "math.h"
+#include "math.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -35,12 +35,17 @@
 #define NUM_OF_ADC_DATA 200
 #define True 1
 #define False 0
-#define SAMPLING_FRQ 10     // 1 to 10
+#define SAMPLING_FRQ 1     // 1 to 10
+#define TERMINATE_TIME 1    // 1 to 60
 #define MAX_SAMPLING_FRQ 10
 #define MAX_PRESSURE_DATA (1000/(SAMPLING_FRQ))
 //#define MEAN_PRESSURE_STEP_SIZE 1000/1
 //#define MAX_NUM_MEAN 1  
 #define TOTAL_NUM_DATA (MAX_PRESSURE_DATA*NUM_OF_ADC_DATA)
+#define AVDD 3.3
+#define ADC_RESISTANCE_RATIO 1.5
+#define MAX_ADC_DATA 4095
+#define ZERO_PRESSURE_VOLTAGE 2.5
 
 
 /* USER CODE END PD */
@@ -70,7 +75,7 @@ uint32_t sum_of_adc_data = 0;  // this var stores sum of the sum of the recieved
 volatile uint8_t data_ready = False;
 volatile uint8_t p_counter = 0;  // An index for pressure
 uint8_t sampling_frq = SAMPLING_FRQ; //1 to 10
-uint8_t terminate_time = 3;  // the maximum time need to wait for measuring statistics data
+uint8_t terminate_time = TERMINATE_TIME;  // the maximum time need to wait for measuring statistics data (1 - 60 second)
 uint16_t num_of_means;
 volatile float sum_of_means = 0;
 volatile float means[600]; //an array with the max number of mean data required
@@ -80,8 +85,12 @@ volatile float min_pressure;
 volatile float max_pressure;
 volatile float mean_pressure;
 volatile float std_pressure;
+volatile float min_adc_data;
+volatile float max_adc_data;
+volatile float mean_adc_data;
+volatile float std_adc_data;
 volatile uint8_t timer_status = False;
-volatile uint8_t loop_counter = 0;
+//volatile uint8_t loop_counter = 0;
 
 /* USER CODE END PV */
 
@@ -136,7 +145,7 @@ int main(void)
   MX_DMA_Init();
   MX_ADC1_Init();
   MX_TIM1_Init();
-  MX_TIM3_Init();
+//  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 	num_of_means = terminate_time * sampling_frq;
 
@@ -144,7 +153,7 @@ int main(void)
 	
 	__HAL_TIM_SetAutoreload(&htim1, 64000/sampling_frq) ;
 	HAL_TIM_Base_Start_IT(&htim1);
-	HAL_TIM_Base_Start_IT(&htim3);
+	//HAL_TIM_Base_Start_IT(&htim3);
 	
   /* USER CODE END 2 */
 
@@ -152,19 +161,11 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-		if(timer_status == True)
-		{
-			timer_status = False;
-			// measure std
-			means_counter = 0;
-			//sum_of_means = sum_of_means - means[means_counter] + data[p_counter];
-			
-		}
 		
 		if(data_ready == True)
 		{
-			
 			data_ready = False;
+			
 			if(p_counter == sampling_frq)
 			{
 				p_counter =0;
@@ -174,31 +175,51 @@ int main(void)
 			
 			
 			sum_of_means = sum_of_means - means[means_counter] + data[p_counter];
-			if(means_counter == 0 && loop_counter == 0)
-			{
-				means[0] = 2250.01;
-				min_pressure = means[0];
-			}
-			else
-			{
-				means[means_counter] = data[p_counter];
-			}
-			mean_pressure = sum_of_means / num_of_means;
+
+			means[means_counter] = data[p_counter];
+			mean_adc_data = sum_of_means / num_of_means;
 			
-			if (min_pressure > means[means_counter])
+			// measuring STD
+			std_adc_data = 0;
+			for(uint16_t i = 0; i < num_of_means; i++)
 			{
-				min_pressure = means[means_counter];
+				std_adc_data += powf(means[i]-mean_adc_data , 2);				
 			}
-			if (max_pressure < means[means_counter])
+			std_adc_data = sqrtf(std_adc_data/num_of_means);
+			
+			
+			if (min_adc_data > means[means_counter])
 			{
-				max_pressure = means[means_counter];
+				min_adc_data = means[means_counter];
+			}
+			if (max_adc_data < means[means_counter])
+			{
+				max_adc_data = means[means_counter];
+			}
+			
+			if(means[0] == 0  && means_counter == 1)
+			{
+				means[0] = means[1];
+				min_adc_data = means[1];
 			}
 			
 			means_counter++;
-			// pressure[p_counter] = measure_pressure(mean_data);
 			p_counter++;
 			
+			mean_pressure = measure_pressure(mean_adc_data);
+			std_pressure = measure_pressure(std_adc_data);
+			min_pressure = measure_pressure(min_adc_data);
+			max_pressure = measure_pressure(max_adc_data);
 
+		}
+		
+		if(timer_status == True)
+		{
+			timer_status = False;
+
+			means_counter = 0;
+			//sum_of_means = sum_of_means - means[means_counter] + data[p_counter];
+			
 		}
 		
 		if(adc_ready == True)
@@ -208,7 +229,7 @@ int main(void)
 			
 		}
 		
-		loop_counter++;
+		//loop_counter++;
     /* USER CODE END WHILE */
 		
     /* USER CODE BEGIN 3 */
@@ -458,20 +479,32 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	if(htim == &htim1)
 	{
-		timer_counter = adc_counter;
+		timer_counter++;
 		adc_counter = 0;
 		data_ready = True;
-	}
-	if(htim == &htim3)
-	{
-		terminate_time--;
-		if(terminate_time == 0)
+		if (timer_counter == sampling_frq)  //timer reached 1 second!
 		{
-			terminate_time = 3;
-			timer_status = True;
-			data_ready = False;
+			timer_counter = 0;
+			terminate_time--;
+			if(terminate_time == 0)
+			{
+				terminate_time = TERMINATE_TIME;
+				timer_status = True;
+				//data_ready = False;
+			}
 		}
+		//timer_status = False;
 	}
+//	if(htim == &htim3)
+//	{
+//		terminate_time--;
+//		if(terminate_time == 0)
+//		{
+//			terminate_time = TERMINATE_TIME;
+//			timer_status = True;
+//			//data_ready = False;
+//		}
+//	}
 }
 
 uint32_t get_sum_of_data(void)
@@ -488,7 +521,7 @@ uint32_t get_sum_of_data(void)
 
 float measure_pressure(float data)
 {
-	float temp_pressure = (data * 3.3 * 1.5 / 4095) - 2.5;
+	float temp_pressure = (data * AVDD * ADC_RESISTANCE_RATIO / MAX_ADC_DATA) - ZERO_PRESSURE_VOLTAGE;
 	return temp_pressure;
 }
 
